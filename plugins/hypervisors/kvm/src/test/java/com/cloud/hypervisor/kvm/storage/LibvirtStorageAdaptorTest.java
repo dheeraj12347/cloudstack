@@ -303,4 +303,39 @@ public class LibvirtStorageAdaptorTest {
         Assert.assertTrue("create of one pool waited for the delete of another",
                 createRanDuringDelete(String.valueOf(UUID.randomUUID()), String.valueOf(UUID.randomUUID())));
     }
+
+    @Test
+    public void testCreateStoragePoolDecrementsRefCountWhenGetStoragePoolFails() throws Exception {
+        String uuid = String.valueOf(UUID.randomUUID());
+
+        Connect conn = Mockito.mock(Connect.class);
+        StoragePool sp = Mockito.mock(StoragePool.class);
+
+        Mockito.when(LibvirtConnection.getConnection()).thenReturn(conn);
+        Mockito.when(conn.storagePoolLookupByUUIDString(uuid)).thenReturn(sp);
+        Mockito.when(sp.isActive()).thenReturn(1);
+
+        LibvirtStorageAdaptor adaptor = Mockito.spy(new LibvirtStorageAdaptor(null));
+
+        Mockito.doThrow(new CloudRuntimeException("Simulated storage pool failure"))
+                .when(adaptor).getStoragePool(uuid);
+
+        try {
+            adaptor.createStoragePoolLocked(
+                    uuid,
+                    "127.0.0.1",
+                    0,
+                    "/export/secondary",
+                    null,
+                    Storage.StoragePoolType.Filesystem,
+                    null,
+                    false
+            );
+
+            Assert.fail("Expected CloudRuntimeException");
+        } catch (CloudRuntimeException expected) {
+            Mockito.verify(adaptor).incStoragePoolRefCount(uuid);
+            Mockito.verify(adaptor).decStoragePoolRefCount(uuid);
+        }
+    }
 }
